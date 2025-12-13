@@ -1,0 +1,24 @@
+apiVersion: postgresql.cnpg.io/v1
+kind: Cluster
+metadata:
+  name: local-postgres
+spec:
+  instances: 2
+  imageName: ghcr.io/cloudnative-pg/postgresql:16
+  storage:
+    size: 1Gi
+  bootstrap:
+    initdb:
+      database: happy_pancakes
+      owner: jordans_db
+      postInitApplicationSQL:
+        - CREATE TABLE IF NOT EXISTS pancakes (
+            id SERIAL PRIMARY KEY,
+            name VARCHAR(255) NOT NULL,
+            fluffiness_level INT CHECK (fluffiness_level BETWEEN 1 AND 10),
+            syrup_type VARCHAR(100),
+            is_buttery BOOLEAN DEFAULT true,
+            magical_factor DECIMAL(5, 2),
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            taste_notes TEXT
+          );
