@@ -108,7 +108,7 @@ async def health_check():
 async def serve_index():
     """Serve the frontend"""
     import pathlib
-    index_path = pathlib.Path(__file__).parent.parent / "python_pg_ui" / "static" / "index.html"
+    index_path = pathlib.Path(__file__).parent / "static" / "index.html"
     if index_path.exists():
         return FileResponse(index_path)
     return {"message": "Welcome to Pancake Palace!"}
@@ -130,7 +130,7 @@ async def create_pancake(pancake: PancakeCreate, db: Session = Depends(get_db)):
 
 # Serve static files
 import pathlib
-static_dir = pathlib.Path(__file__).parent.parent / "python_pg_ui" / "static"
+static_dir = pathlib.Path(__file__).parent / "static"
 if static_dir.exists():
     app.mount("/static", StaticFiles(directory=str(static_dir)), name="static")
 
