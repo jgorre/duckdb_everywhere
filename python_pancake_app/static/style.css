@@ -227,6 +227,36 @@ input[type="range"]::-moz-range-thumb:hover {
     transform: translateY(0);
 }
 
+.btn-bulk-generate {
+    width: 100%;
+    padding: 14px;
+    background: linear-gradient(135deg, #4ecdc4 0%, #44a08d 100%);
+    color: white;
+    border: none;
+    border-radius: 10px;
+    font-size: 16px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all 0.3s;
+    box-shadow: 0 5px 15px rgba(78, 205, 196, 0.3);
+    margin-top: 12px;
+}
+
+.btn-bulk-generate:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 8px 20px rgba(78, 205, 196, 0.4);
+}
+
+.btn-bulk-generate:active {
+    transform: translateY(0);
+}
+
+.btn-bulk-generate:disabled {
+    opacity: 0.6;
+    cursor: not-allowed;
+    transform: none;
+}
+
 /* Pancake List */
 .pancake-list {
     display: grid;

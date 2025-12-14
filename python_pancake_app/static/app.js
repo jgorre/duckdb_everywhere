@@ -143,6 +143,78 @@ function showMessage(message, type) {
     }, 3000);
 }
 
+// Bulk generate random pancakes
+async function generateRandomPancakes() {
+    const syrups = ['maple', 'chocolate', 'strawberry', 'caramel', 'blueberry', 'honey'];
+    const pancakeNames = [
+        'Blueberry Bliss', 'Chocolate Dream', 'Strawberry Paradise', 'Golden Stack',
+        'Fluffy Cloud', 'Maple Sunrise', 'Caramel Crunch', 'Honey Sweet',
+        'Berry Burst', 'Cosmic Pancake', 'Magic Moment', 'Summer Stack',
+        'Vanilla Victory', 'Chocolate Chip Delight', 'Rainbow Pancake', 'Midnight Stack',
+        'Sunrise Special', 'Crystal Clear', 'Buttery Bliss', 'Sweet Dreams'
+    ];
+    const tasteDescriptions = [
+        'Absolutely delicious!', 'Perfectly fluffy', 'Melts in your mouth', 'Simply heavenly',
+        'Best batch yet', 'Cloud-like texture', 'Pure magic', 'Unforgettable', 'Divine',
+        'Spectacular', 'Outstanding', 'Phenomenal', 'Exquisite', 'Marvelous'
+    ];
+
+    const pancakesToCreate = [];
+    for (let i = 0; i < 10; i++) {
+        pancakesToCreate.push({
+            name: `${pancakeNames[Math.floor(Math.random() * pancakeNames.length)]} #${Date.now()}-${i}`,
+            fluffiness_level: Math.floor(Math.random() * 10) + 1,
+            syrup_type: syrups[Math.floor(Math.random() * syrups.length)],
+            is_buttery: Math.random() > 0.2,
+            magical_factor: parseFloat((Math.random() * 10).toFixed(2)),
+            taste_notes: tasteDescriptions[Math.floor(Math.random() * tasteDescriptions.length)]
+        });
+    }
+
+    const btn = document.getElementById('bulkGenerateBtn');
+    const originalText = btn.textContent;
+    btn.disabled = true;
+    btn.textContent = '⏳ Creating... 0/10';
+
+    let successCount = 0;
+    let failureCount = 0;
+
+    for (let i = 0; i < pancakesToCreate.length; i++) {
+        try {
+            const response = await fetch(`${API_BASE}/pancakes`, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify(pancakesToCreate[i])
+            });
+
+            if (response.ok) {
+                successCount++;
+            } else {
+                failureCount++;
+            }
+        } catch (error) {
+            console.error('Error creating pancake:', error);
+            failureCount++;
+        }
+
+        btn.textContent = `⏳ Creating... ${successCount + failureCount}/10`;
+    }
+
+    btn.disabled = false;
+    btn.textContent = originalText;
+
+    // Reload pancakes
+    await loadPancakes();
+
+    // Show success message
+    showMessage(`✨ Created ${successCount} pancakes! ${failureCount > 0 ? `(${failureCount} failed)` : ''}`, 'success');
+}
+
+// Bulk generate button click handler
+document.getElementById('bulkGenerateBtn').addEventListener('click', generateRandomPancakes);
+
 // Load pancakes on page load
 loadPancakes();
 
