@@ -24,12 +24,12 @@ spec:
         - name: DB_USER
           valueFrom:
             secretKeyRef:
-              name: local-postgres-app
+              name: pancake-db-reader-writer-secret
               key: username
         - name: DB_PASSWORD
           valueFrom:
             secretKeyRef:
-              name: local-postgres-app
+              name: pancake-db-reader-writer-secret
               key: password
         - name: DB_HOST
           value: "local-postgres-rw"

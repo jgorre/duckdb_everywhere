@@ -7,10 +7,20 @@ spec:
   imageName: ghcr.io/cloudnative-pg/postgresql:16
   storage:
     size: 1Gi
+  managed:
+    roles:
+      - name: pancake_db_reader_writer
+        superuser: false
+        login: true
+        inRoles:
+          - pg_read_all_data
+          - pg_write_all_data
+        passwordSecret:
+          name: pancake-db-reader-writer-secret
+
   bootstrap:
     initdb:
       database: happy_pancakes
-      owner: jordans_db
       postInitApplicationSQL:
         - CREATE TABLE IF NOT EXISTS pancakes (
             id SERIAL PRIMARY KEY,
@@ -22,5 +32,3 @@ spec:
             created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
             taste_notes TEXT
           );
-        - GRANT SELECT, INSERT, UPDATE, DELETE ON pancakes TO "jordans_db";
-        - GRANT USAGE ON SEQUENCE pancakes_id_seq TO "jordans_db";
