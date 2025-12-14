@@ -4,11 +4,12 @@ metadata:
   name: pancake-backend
   namespace: default
 spec:
-  type: ClusterIP
+  type: NodePort
   selector:
     app: pancake-backend
   ports:
   - name: http
     port: 8000
     targetPort: 8000
+    nodePort: 30090
     protocol: TCP

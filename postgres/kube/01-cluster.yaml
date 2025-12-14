@@ -22,3 +22,5 @@ spec:
             created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
             taste_notes TEXT
           );
+        - GRANT SELECT, INSERT, UPDATE, DELETE ON pancakes TO "jordans_db";
+        - GRANT USAGE ON SEQUENCE pancakes_id_seq TO "jordans_db";
