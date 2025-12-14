@@ -1,0 +1,61 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: pancake-backend
+  namespace: default
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: pancake-backend
+  template:
+    metadata:
+      labels:
+        app: pancake-backend
+    spec:
+      containers:
+      - name: pancake-backend
+        image: pancake-backend:latest
+        imagePullPolicy: Never  # For local development
+        ports:
+        - containerPort: 8000
+          name: http
+        env:
+        - name: DB_USER
+          valueFrom:
+            secretKeyRef:
+              name: local-postgres-app
+              key: username
+        - name: DB_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: local-postgres-app
+              key: password
+        - name: DB_HOST
+          value: "local-postgres-rw"
+        - name: DB_PORT
+          value: "5432"
+        - name: DB_NAME
+          value: "happy_pancakes"
+        
+        livenessProbe:
+          httpGet:
+            path: /health
+            port: 8000
+          initialDelaySeconds: 10
+          periodSeconds: 10
+        
+        readinessProbe:
+          httpGet:
+            path: /health
+            port: 8000
+          initialDelaySeconds: 5
+          periodSeconds: 5
+        
+        resources:
+          requests:
+            cpu: 100m
+            memory: 64Mi
+          limits:
+            cpu: 200m
+            memory: 256Mi

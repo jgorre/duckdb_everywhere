@@ -1,0 +1,81 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Pancake Palace 🥞</title>
+    <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+    <div class="container">
+        <!-- Header -->
+        <div class="header">
+            <div class="pancake-emoji">🥞</div>
+            <h1>Pancake Palace</h1>
+            <p class="subtitle">Where dreams are made fluffy ☁️</p>
+        </div>
+
+        <!-- Form Section -->
+        <div class="card form-card">
+            <h2>🎨 Create Your Pancake Masterpiece</h2>
+            <form id="pancakeForm">
+                <div class="form-group">
+                    <label for="name">Pancake Name *</label>
+                    <input type="text" id="name" name="name" required placeholder="e.g., Blueberry Dream">
+                </div>
+
+                <div class="form-group">
+                    <label for="fluffiness">Fluffiness Level</label>
+                    <div class="slider-container">
+                        <input type="range" id="fluffiness" name="fluffiness" min="1" max="10" value="5">
+                        <span class="slider-value" id="fluffinessValue">5</span>/10
+                    </div>
+                </div>
+
+                <div class="form-group">
+                    <label for="syrupType">Syrup Type</label>
+                    <select id="syrupType" name="syrupType">
+                        <option value="">None</option>
+                        <option value="maple">🍁 Maple</option>
+                        <option value="chocolate">🍫 Chocolate</option>
+                        <option value="strawberry">🍓 Strawberry</option>
+                        <option value="caramel">🍯 Caramel</option>
+                        <option value="blueberry">🫐 Blueberry</option>
+                        <option value="honey">🍯 Honey</option>
+                    </select>
+                </div>
+
+                <div class="form-group checkbox">
+                    <input type="checkbox" id="isButter" name="isButter" checked>
+                    <label for="isButter">Buttery Goodness 🧈</label>
+                </div>
+
+                <div class="form-group">
+                    <label for="magical">Magical Factor</label>
+                    <div class="slider-container">
+                        <input type="range" id="magical" name="magical" min="0" max="10" step="0.1" value="5">
+                        <span class="slider-value" id="magicalValue">5.0</span>✨
+                    </div>
+                </div>
+
+                <div class="form-group">
+                    <label for="tasteNotes">Taste Notes</label>
+                    <textarea id="tasteNotes" name="tasteNotes" placeholder="Describe the magic..."></textarea>
+                </div>
+
+                <button type="submit" class="btn-submit">✨ Create Pancake ✨</button>
+            </form>
+        </div>
+
+        <!-- Pancakes Display Section -->
+        <div class="card list-card">
+            <h2>🥞 Your Pancake Collection</h2>
+            <div id="pancakeList" class="pancake-list">
+                <div class="loading">Loading your delicious creations...</div>
+            </div>
+        </div>
+    </div>
+
+    <script src="/static/app.js"></script>
+</body>
+</html>
