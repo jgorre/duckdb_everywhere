@@ -1,0 +1,5 @@
+# DuckDB - works great with Python 3.11
+duckdb>=1.1.0
+
+# PostgreSQL adapter for extracting from your pancake database
+psycopg2-binary>=2.9.9
