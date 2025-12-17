@@ -37,7 +37,7 @@ duckdb.sql(f"""
     INSTALL iceberg;
     LOAD iceberg;
            
-           
+    
 """)
 
 # Temp update extensions
