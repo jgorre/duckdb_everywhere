@@ -20,11 +20,27 @@ duckdb.sql("SELECT 'Hello, DuckDB!' AS greeting").show()
 
 # duckdb.sql("SELECT 42").write_parquet("output.parquet")
 
+# 1. Extract Data
 duckdb.sql(f"""
     INSTALL postgres;
     LOAD postgres;
            
-    ATTACH 'dbname=happy_pancakes user={DB_USER} password={DB_PASSWORD} port=30042 host=102.168.64.1' AS postgres_db (TYPE postgres);
+    ATTACH 'dbname=happy_pancakes user={DB_USER} password={DB_PASSWORD} port=30042 host=192.168.64.2' AS postgres_db (TYPE postgres);
 
-    select count(*) from postgres_db.pancakes limit 10;
+    select * from postgres_db.pancakes;
 """).show()
+
+# How do we buffer large extracts to DuckDB?
+
+# 2. Write data to Iceberg
+duckdb.sql(f"""
+    INSTALL iceberg;
+    LOAD iceberg;
+           
+           
+""")
+
+# Temp update extensions
+# duckdb.sql(f"""
+#     UPDATE EXTENSIONS;
+# """).show()
