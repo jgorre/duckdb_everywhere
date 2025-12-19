@@ -1,0 +1,45 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: pancake-extract
+  namespace: default
+spec:
+  template:
+    spec:
+      serviceAccountName: default
+      containers:
+      - name: duckdb-extract
+        image: duckdb-extract:latest
+        imagePullPolicy: Never  # For local development
+        env:
+        - name: DB_USER
+          value: "pancake_db_reader_writer"
+        - name: DB_PASSWORD
+          value: "supersecretpasswordoftheages"
+        - name: DB_HOST
+          value: "local-postgres-rw"
+        - name: DB_PORT
+          value: "5432"
+        - name: DB_NAME
+          value: "happy_pancakes"
+        - name: LAKEKEEPER_URI
+          value: "http://my-lakekeeper.default.svc.cluster.local:8181/catalog"
+        - name: LAKEKEEPER_CLIENT_ID
+          value: "admin"
+        - name: LAKEKEEPER_CLIENT_SECRET
+          value: "password"
+        - name: MINIO_ENDPOINT
+          value: "http://minio.default.svc.cluster.local:9000"
+        - name: MINIO_ACCESS_KEY
+          value: "minioadmin"
+        - name: MINIO_SECRET_KEY
+          value: "minioadmin123"
+        resources:
+          requests:
+            cpu: 100m
+            memory: 256Mi
+          limits:
+            cpu: 500m
+            memory: 512Mi
+      restartPolicy: OnFailure
+  backoffLimit: 3

@@ -32,15 +32,54 @@ duckdb.sql(f"""
 
 # How do we buffer large extracts to DuckDB?
 
-# 2. Write data to Iceberg
+# 2. Write data to Iceberg via Lakekeeper catalog
+# Connection details for REST Iceberg catalog
+# NOTE: Lakekeeper uses /catalog prefix for Iceberg REST API
+
+# For local testing with port-forwarding
+# LAKEKEEPER_URI = os.getenv("LAKEKEEPER_URI", "http://localhost:8181/catalog")
+# MINIO_ENDPOINT = os.getenv("MINIO_ENDPOINT", "http://192.168.64.2:30900")
+
+# Actual in-cluster service addresses
+LAKEKEEPER_URI = os.getenv("LAKEKEEPER_URI", "http://my-lakekeeper.default.svc.cluster.local:8181/catalog")
+MINIO_ENDPOINT = os.getenv("MINIO_ENDPOINT", "http://minio.default.svc.cluster.local:9000")
+
+MINIO_ACCESS_KEY = os.getenv("MINIO_ACCESS_KEY", "minioadmin")
+MINIO_SECRET_KEY = os.getenv("MINIO_SECRET_KEY", "minioadmin123")
+
 duckdb.sql(f"""
     INSTALL iceberg;
     LOAD iceberg;
-           
     
-""")
+    -- Create S3 secret for MinIO (where Iceberg stores data files)
+    CREATE SECRET minio_s3_secret (
+        TYPE S3,
+        KEY_ID '{MINIO_ACCESS_KEY}',
+        SECRET '{MINIO_SECRET_KEY}',
+        REGION 'us-east-1',
+        ENDPOINT '{MINIO_ENDPOINT}',
+        USE_SSL false,
+        URL_STYLE 'path'
+    );
+    
+    -- Attach to Lakekeeper REST Iceberg catalog
+    ATTACH 'iceberg-lakehouse' AS lakekeeper_catalog (
+        TYPE iceberg,
+        ENDPOINT '{LAKEKEEPER_URI}',
+        AUTHORIZATION_TYPE 'none'
+    );
+    
+    -- Create namespace (if it doesn't exist)
+    CREATE SCHEMA IF NOT EXISTS lakekeeper_catalog.pancake_analytics;
+    
+    -- Drop table if exists, then recreate (DuckDB-Iceberg doesn't support CREATE OR REPLACE)
+    DROP TABLE IF EXISTS lakekeeper_catalog.pancake_analytics.pancakes;
+    
+    CREATE TABLE lakekeeper_catalog.pancake_analytics.pancakes AS 
+    SELECT * FROM postgres_db.pancakes;
+    
+    -- Verify the data was written
+    SELECT COUNT(*) as total_pancakes FROM lakekeeper_catalog.pancake_analytics.pancakes;
+""").show()
 
-# Temp update extensions
-# duckdb.sql(f"""
-#     UPDATE EXTENSIONS;
-# """).show()
+print("✨ Pipeline complete! Pancake data extracted to Iceberg via Lakekeeper ✨")
