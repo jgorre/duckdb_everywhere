@@ -7,18 +7,7 @@ DB_HOST = os.getenv("DB_HOST", "local-postgres-rw")
 DB_PORT = os.getenv("DB_PORT", "5432")
 DB_NAME = os.getenv("DB_NAME", "happy_pancakes")
 
-duckdb.sql("SELECT 'Hello, DuckDB!' AS greeting").show()
-
-# duckdb.sql("select * from '2_duckdb_extract/sample_data.csv'").show()
-
-# con = duckdb.connect('testdb.duckdb')
-# con.sql("CREATE TABLE test (i INTEGER, j INTEGER)")
-# con.sql("INSERT INTO test VALUES (1, 2), (3, 4), (5, 6)")
-# result = con.sql("SELECT * FROM test").fetchall()
-# print(result)
-# con.close()
-
-# duckdb.sql("SELECT 42").write_parquet("output.parquet")
+# duckdb.sql("SELECT 'Hello, DuckDB!' AS greeting").show()
 
 # 1. Extract Data
 duckdb.sql(f"""
@@ -37,12 +26,11 @@ duckdb.sql(f"""
 # NOTE: Lakekeeper uses /catalog prefix for Iceberg REST API
 
 # For local testing with port-forwarding
-# LAKEKEEPER_URI = os.getenv("LAKEKEEPER_URI", "http://localhost:8181/catalog")
-# MINIO_ENDPOINT = os.getenv("MINIO_ENDPOINT", "http://192.168.64.2:30900")
+LOCAL_TESTING_LAKEKEEPER_URI = "http://localhost:8181/catalog"
+LOCAL_TESTING_MINIO_ENDPOINT = "http://192.168.64.2:30900"
 
-# Actual in-cluster service addresses
-LAKEKEEPER_URI = os.getenv("LAKEKEEPER_URI", "http://my-lakekeeper.default.svc.cluster.local:8181/catalog")
-MINIO_ENDPOINT = os.getenv("MINIO_ENDPOINT", "http://minio.default.svc.cluster.local:9000")
+LAKEKEEPER_URI = os.getenv("LAKEKEEPER_URI", LOCAL_TESTING_LAKEKEEPER_URI)
+MINIO_ENDPOINT = os.getenv("MINIO_ENDPOINT", LOCAL_TESTING_MINIO_ENDPOINT)
 
 MINIO_ACCESS_KEY = os.getenv("MINIO_ACCESS_KEY", "minioadmin")
 MINIO_SECRET_KEY = os.getenv("MINIO_SECRET_KEY", "minioadmin123")
@@ -83,3 +71,8 @@ duckdb.sql(f"""
 """).show()
 
 print("✨ Pipeline complete! Pancake data extracted to Iceberg via Lakekeeper ✨")
+
+
+duckdb.sql("""
+    SELECT * FROM lakekeeper_catalog.pancake_analytics.pancakes LIMIT 5;
+""").show()
