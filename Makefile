@@ -28,6 +28,14 @@ copy_extract_venv_path:
 run_extract:
 	python3 ./2_duckdb_extract/extract.py
 
+build_extract_image:
+	docker build -t duckdb-extract:latest ./2_duckdb_extract
+
+apply_extract_kube:
+	make build_extract_image
+	kubectl delete job pancake-extract --ignore-not-found=true
+	kubectl apply -f ./2_duckdb_extract/kube/01-job.yaml
+
 run_minio_bucket_init:
 	kubectl create configmap minio-init-script \
 		--from-file=init.sh=./3_iceberg/kube/minio/init.sh \

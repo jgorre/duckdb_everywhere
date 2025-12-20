@@ -32,6 +32,8 @@ LOCAL_TESTING_MINIO_ENDPOINT = "http://192.168.64.2:30900"
 LAKEKEEPER_URI = os.getenv("LAKEKEEPER_URI", LOCAL_TESTING_LAKEKEEPER_URI)
 MINIO_ENDPOINT = os.getenv("MINIO_ENDPOINT", LOCAL_TESTING_MINIO_ENDPOINT)
 
+WAREHOUSE = os.getenv("WAREHOUSE", "iceberg-lakehouse-local")
+
 MINIO_ACCESS_KEY = os.getenv("MINIO_ACCESS_KEY", "minioadmin")
 MINIO_SECRET_KEY = os.getenv("MINIO_SECRET_KEY", "minioadmin123")
 
@@ -39,19 +41,8 @@ duckdb.sql(f"""
     INSTALL iceberg;
     LOAD iceberg;
     
-    -- Create S3 secret for MinIO (where Iceberg stores data files)
-    CREATE SECRET minio_s3_secret (
-        TYPE S3,
-        KEY_ID '{MINIO_ACCESS_KEY}',
-        SECRET '{MINIO_SECRET_KEY}',
-        REGION 'us-east-1',
-        ENDPOINT '{MINIO_ENDPOINT}',
-        USE_SSL false,
-        URL_STYLE 'path'
-    );
-    
     -- Attach to Lakekeeper REST Iceberg catalog
-    ATTACH 'iceberg-lakehouse' AS lakekeeper_catalog (
+    ATTACH '{WAREHOUSE}' AS lakekeeper_catalog (
         TYPE iceberg,
         ENDPOINT '{LAKEKEEPER_URI}',
         AUTHORIZATION_TYPE 'none'
