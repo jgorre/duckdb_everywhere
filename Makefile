@@ -27,3 +27,11 @@ copy_extract_venv_path:
 
 run_extract:
 	python3 ./2_duckdb_extract/extract.py
+
+run_minio_bucket_init:
+	kubectl create configmap minio-init-script \
+		--from-file=init.sh=./3_iceberg/kube/minio/init.sh \
+		--from-file=buckets=./3_iceberg/kube/minio/buckets \
+		--dry-run=client -o yaml | kubectl apply -f -
+	kubectl delete job minio-init --ignore-not-found=true
+	kubectl apply -f ./3_iceberg/kube/minio/05-minio-init-job.yaml

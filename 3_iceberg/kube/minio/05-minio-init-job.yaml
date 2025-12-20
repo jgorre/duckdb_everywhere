@@ -1,0 +1,50 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: minio-init
+  namespace: default
+spec:
+  # Keep completed job for 1 hour for debugging, then auto-delete
+  ttlSecondsAfterFinished: 3600
+  template:
+    spec:
+      restartPolicy: OnFailure
+      
+      containers:
+      - name: minio-setup
+        image: minio/mc:latest
+        env:
+        # Pull MinIO credentials from the same secret as the MinIO deployment
+        - name: MINIO_ROOT_USER
+          valueFrom:
+            secretKeyRef:
+              name: minio-credentials
+              key: root-user
+        - name: MINIO_ROOT_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: minio-credentials
+              key: root-password
+        command:
+          - /bin/sh
+          - /scripts/init.sh
+        volumeMounts:
+        - name: init-script
+          mountPath: /scripts
+        - name: config-files
+          mountPath: /config
+      
+      volumes:
+      - name: init-script
+        configMap:
+          name: minio-init-script
+          defaultMode: 0755  # Make script executable
+          items:
+          - key: init.sh
+            path: init.sh
+      - name: config-files
+        configMap:
+          name: minio-init-script
+          items:
+          - key: buckets
+            path: buckets
