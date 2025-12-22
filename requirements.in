@@ -1,0 +1,14 @@
+# 3rd party CLI for DuckDB
+duckcli>=0.2.1
+
+# Database adapter - 1.10+ required for attach options dict support
+dbt-duckdb>=1.10.0,<2.0.0
+
+# DuckDB - 1.4+ required for TYPE iceberg ATTACH support
+duckdb>=1.4.0,<2.0.0
+
+# dbt Core - compatible with dbt-duckdb 1.10.x
+dbt-core>=1.9.0,<2.0.0
+
+# extra features
+sqlfluff>=2.3.5,<3

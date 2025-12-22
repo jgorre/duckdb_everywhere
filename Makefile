@@ -22,9 +22,6 @@ python-app:
 lakekeeper-port-forward:
 	kubectl port-forward svc/my-lakekeeper 8181:8181
 
-copy_extract_venv_path:
-	echo "./2_duckdb_extract/extract_venv/bin/activate" | pbcopy && echo "Extract venv path copied to clipboard."
-
 run_extract:
 	python3 ./2_duckdb_extract/extract.py
 
