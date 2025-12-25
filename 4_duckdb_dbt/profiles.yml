@@ -1,0 +1,20 @@
+duckdb_dbt:
+
+  target: local
+  outputs:
+    local:
+      type: duckdb
+      path: dbt.duckdb
+      threads: 24
+      extensions:
+        - iceberg
+      database: lakekeeper_catalog
+      schema: pancake_analytics
+      disable_transactions: true
+      attach:
+        - path: iceberg-lakehouse-local
+          alias: lakekeeper_catalog
+          type: iceberg
+          options:
+            endpoint: 'http://localhost:8181/catalog'
+            authorization_type: 'none'
