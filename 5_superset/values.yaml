@@ -54,6 +54,7 @@ serviceAccount:
 bootstrapScript: |
   #!/bin/bash
   uv pip install .[postgres]
+  uv pip install duckdb==1.4.3 duckdb-engine==0.17.0
   if [ ! -f ~/bootstrap ]; then echo "Running Superset with uid {{ .Values.runAsUser }}" > ~/bootstrap; fi
 
 # -- The name of the secret which we will use to generate a superset_config.py file
