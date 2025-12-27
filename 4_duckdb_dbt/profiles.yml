@@ -9,7 +9,6 @@ duckdb_dbt:
       extensions:
         - iceberg
       database: lakekeeper_catalog
-      schema: pancake_analytics
       disable_transactions: true
       attach:
         - path: iceberg-lakehouse-local
@@ -18,3 +17,7 @@ duckdb_dbt:
           options:
             endpoint: 'http://localhost:8181/catalog'
             authorization_type: 'none'
+        - path: postgresql://pancake_db_reader_writer:supersecretpasswordoftheages@192.168.64.2:30042/happy_pancakes
+          alias: pancakes_postgres
+          type: postgres
+

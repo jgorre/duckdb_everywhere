@@ -23,8 +23,15 @@ with duckdb.connect() as con:
         );    
     """)
 
-    con.sql(f"""   
-        SELECT * FROM lakekeeper_catalog.pancake_analytics.stg_pancakes;
+    # con.sql(f"""   
+    #     SELECT * FROM lakekeeper_catalog.pancake_analytics.stg_pancakes;
+    # """).show()
+
+    con.sql(f"""
+        select fluffiness_level, avg(magical_factor) as avg_magical_factor
+        from lakekeeper_catalog.pancake_analytics.stg_pancakes
+        group by fluffiness_level
+        order by fluffiness_level
     """).show()
 
 print("✨ Pipeline complete! Pancake data extracted to Iceberg via Lakekeeper ✨")

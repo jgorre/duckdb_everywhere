@@ -1,5 +1,5 @@
-with raw as (
-    select * from {{ source('lakekeeper_catalog', 'pancakes')}}
+with pancakes as (
+    select * from {{ ref('src_postgres__pancakes_raw')}}
 ),
 
 final as (
@@ -8,7 +8,7 @@ final as (
         name,
         fluffiness_level,
         magical_factor
-    from raw
+    from pancakes
 )
 
 select * from final

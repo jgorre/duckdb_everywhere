@@ -1,10 +1,10 @@
 version: 2
 
 sources:
-  - name: lakekeeper_catalog
-    description: "Iceberg catalog managed by Lakekeeper, containing extracted pancake data"
-    database: lakekeeper_catalog
-    schema: pancake_analytics
+  - name: pancakes_postgres
+    description: "Postgres Source database containing OLTP application pancake data"
+    database: pancakes_postgres
+    schema: public
     tables:
       - name: pancakes
         description: "Raw pancake records extracted from PostgreSQL database"
