@@ -16,6 +16,7 @@ from dataclasses import dataclass
 from typing import Optional
 import json
 import random
+import time
 import urllib.request
 import urllib.error
 
@@ -28,7 +29,7 @@ HISTORY_WINDOW = 20  # How many past ticks producers can see
 NUM_TOPPINGS_PER_PRODUCER = 5
 MAX_TOPPING_SWAPS = 3
 OLLAMA_BASE_URL = "http://localhost:11434"
-OLLAMA_MODEL = "qwen3:0.6b"
+OLLAMA_MODEL = "gemma3:1b"
 
 # =============================================================================
 # Ollama Health Check
@@ -62,8 +63,11 @@ class Producer:
 @dataclass
 class Consumer:
     id: int
-    name: str
-    # traits TBD - excluded for now
+    openness: int       # 1-5: willingness to try unusual combinations
+    pickiness: int      # 1-5: how critical/demanding they are
+    impulsivity: int    # 1-5: gut feeling vs deliberate weighing
+    indulgence: int     # 1-5: preference for rich, decadent options
+    nostalgia: int      # 1-5: preference for classic, comforting flavors
 
 @dataclass
 class Topping:
@@ -73,7 +77,6 @@ class Topping:
 @dataclass
 class ProducerOffering:
     producer_id: int
-    fluffiness: int  # 1-5
     topping_ids: list[int]
 
 @dataclass
@@ -90,7 +93,6 @@ class ProducerHistory:
     avg_enticement: float
     median_enticement: float
     toppings: list[str]
-    fluffiness: int
 
 # =============================================================================
 # Database Setup
@@ -107,8 +109,11 @@ CREATE TABLE IF NOT EXISTS producers (
 
 CREATE TABLE IF NOT EXISTS consumers (
     id INTEGER PRIMARY KEY,
-    name TEXT NOT NULL
-    -- traits TBD, excluded for now
+    openness INTEGER CHECK (openness BETWEEN 1 AND 5),
+    pickiness INTEGER CHECK (pickiness BETWEEN 1 AND 5),
+    impulsivity INTEGER CHECK (impulsivity BETWEEN 1 AND 5),
+    indulgence INTEGER CHECK (indulgence BETWEEN 1 AND 5),
+    nostalgia INTEGER CHECK (nostalgia BETWEEN 1 AND 5)
 );
 
 CREATE TABLE IF NOT EXISTS toppings (
@@ -127,7 +132,6 @@ CREATE TABLE IF NOT EXISTS ticks (
 CREATE TABLE IF NOT EXISTS producer_offerings (
     tick_id INTEGER REFERENCES ticks(id),
     producer_id INTEGER REFERENCES producers(id),
-    fluffiness INTEGER CHECK (fluffiness BETWEEN 1 AND 5),
     PRIMARY KEY (tick_id, producer_id)
 );
 
@@ -172,16 +176,30 @@ SEED_PRODUCERS = [
 ]
 
 SEED_CONSUMERS = [
-    "Alex", "Blake", "Casey", "Dana", "Ellis",
-    "Finley", "Gray", "Harper", "Indigo", "Jordan",
+    # (openness, pickiness, impulsivity, indulgence, nostalgia)
+    (5, 2, 5, 4, 1),  # Adventurous impulsive indulger
+    (1, 5, 1, 2, 5),  # Traditional picky deliberate nostalgic
+    (3, 3, 3, 3, 3),  # Perfectly balanced
+    (5, 4, 2, 5, 1),  # Open picky deliberate indulger
+    (1, 1, 5, 1, 5),  # Simple impulsive nostalgic
+    (4, 2, 4, 3, 2),  # Open easy-going impulsive moderate
+    (2, 5, 1, 4, 4),  # Cautious picky deliberate indulgent nostalgic
+    (5, 1, 3, 2, 1),  # Adventurous easy-going balanced simple
+    (3, 4, 5, 5, 2),  # Moderate picky impulsive indulgent
+    (2, 2, 2, 3, 5),  # Cautious easy-going deliberate nostalgic
 ]
 
 SEED_TOPPINGS = [
-    "blueberries", "strawberries", "raspberries", "bananas", "chocolate chips",
-    "whipped cream", "maple syrup", "honey", "peanut butter", "nutella",
-    "bacon bits", "scrambled eggs", "cheddar cheese", "ham", "sausage crumbles",
-    "walnuts", "pecans", "almonds", "coconut flakes", "granola",
-    "cinnamon sugar", "powdered sugar", "caramel drizzle", "lemon zest", "vanilla cream",
+    # Classic sweet
+    "blueberry", "strawberry", "banana", "chocolate chip", "whipped cream",
+    # Syrups & spreads
+    "maple syrup", "honey", "peanut butter", "nutella", "caramel",
+    # Savory
+    "bacon", "fried egg", "cheddar cheese", "goat cheese", "prosciutto",
+    # Nuts & seeds
+    "walnut", "pistachio", "almond", "black sesame", "candied pecan",
+    # Exotic
+    "matcha powder", "lavender honey", "mango", "passion fruit", "cardamom sugar",
 ]
 
 def init_db(conn: duckdb.DuckDBPyConnection, reset: bool = False) -> None:
@@ -220,8 +238,11 @@ def init_db(conn: duckdb.DuckDBPyConnection, reset: bool = False) -> None:
         )
     
     # Seed consumers
-    for i, name in enumerate(SEED_CONSUMERS, start=1):
-        conn.execute("INSERT INTO consumers (id, name) VALUES (?, ?)", [i, name])
+    for i, (openness, pickiness, impulsivity, indulgence, nostalgia) in enumerate(SEED_CONSUMERS, start=1):
+        conn.execute(
+            "INSERT INTO consumers (id, openness, pickiness, impulsivity, indulgence, nostalgia) VALUES (?, ?, ?, ?, ?, ?)",
+            [i, openness, pickiness, impulsivity, indulgence, nostalgia]
+        )
     
     # Seed toppings
     for i, name in enumerate(SEED_TOPPINGS, start=1):
@@ -240,8 +261,8 @@ def get_producers(conn: duckdb.DuckDBPyConnection) -> list[Producer]:
 
 def get_consumers(conn: duckdb.DuckDBPyConnection) -> list[Consumer]:
     """Get all consumers."""
-    rows = conn.execute("SELECT id, name FROM consumers ORDER BY id").fetchall()
-    return [Consumer(id=r[0], name=r[1]) for r in rows]
+    rows = conn.execute("SELECT id, openness, pickiness, impulsivity, indulgence, nostalgia FROM consumers ORDER BY id").fetchall()
+    return [Consumer(id=r[0], openness=r[1], pickiness=r[2], impulsivity=r[3], indulgence=r[4], nostalgia=r[5]) for r in rows]
 
 def get_all_toppings(conn: duckdb.DuckDBPyConnection) -> list[Topping]:
     """Get all available toppings."""
@@ -263,14 +284,6 @@ def get_producer_current_toppings(conn: duckdb.DuckDBPyConnection, producer_id: 
     ).fetchall()
     return [r[0] for r in rows]
 
-def get_producer_current_fluffiness(conn: duckdb.DuckDBPyConnection, producer_id: int, tick_id: int) -> int:
-    """Get fluffiness for a producer from a specific tick."""
-    result = conn.execute(
-        "SELECT fluffiness FROM producer_offerings WHERE producer_id = ? AND tick_id = ?",
-        [producer_id, tick_id]
-    ).fetchone()
-    return result[0] if result else 3  # Default to middle fluffiness
-
 def get_producer_history(conn: duckdb.DuckDBPyConnection, producer_id: int, limit: int = HISTORY_WINDOW) -> list[ProducerHistory]:
     """Get historical stats for a producer (most recent first)."""
     rows = conn.execute("""
@@ -280,14 +293,13 @@ def get_producer_history(conn: duckdb.DuckDBPyConnection, producer_id: int, limi
             s.market_share,
             s.avg_enticement,
             s.median_enticement,
-            o.fluffiness,
             GROUP_CONCAT(t.name ORDER BY t.name) as topping_names
         FROM producer_round_stats s
         JOIN producer_offerings o ON s.tick_id = o.tick_id AND s.producer_id = o.producer_id
         JOIN producer_toppings pt ON s.tick_id = pt.tick_id AND s.producer_id = pt.producer_id
         JOIN toppings t ON pt.topping_id = t.id
         WHERE s.producer_id = ?
-        GROUP BY s.tick_id, s.consumer_count, s.market_share, s.avg_enticement, s.median_enticement, o.fluffiness
+        GROUP BY s.tick_id, s.consumer_count, s.market_share, s.avg_enticement, s.median_enticement
         ORDER BY s.tick_id DESC
         LIMIT ?
     """, [producer_id, limit]).fetchall()
@@ -299,8 +311,7 @@ def get_producer_history(conn: duckdb.DuckDBPyConnection, producer_id: int, limi
             market_share=r[2],
             avg_enticement=r[3],
             median_enticement=r[4],
-            fluffiness=r[5],
-            toppings=r[6].split(",") if r[6] else []
+            toppings=r[5].split(",") if r[5] else []
         )
         for r in rows
     ]
@@ -366,104 +377,157 @@ def complete_tick(conn: duckdb.DuckDBPyConnection, tick_id: int) -> None:
 def build_producer_prompt(
     producer: Producer,
     current_toppings: list[str],
-    current_fluffiness: int,
     all_toppings: list[str],
     history: list[ProducerHistory],
     is_first_tick: bool
 ) -> str:
     """Build the prompt for a producer's decision."""
     
-    creativity_desc = {
-        1: "extremely traditional - you stick to classic, proven combinations",
-        2: "somewhat traditional - you prefer familiar toppings with occasional twists", 
-        3: "balanced - you mix classic choices with occasional experimentation",
-        4: "quite creative - you enjoy trying unusual combinations",
-        5: "wildly creative - you love bold, unexpected topping choices"
-    }
+    # Build history analysis section
+    history_section = ""
+    urgent_warning = ""
     
-    risk_desc = {
-        1: "extremely risk-averse - you rarely change what's working",
-        2: "cautious - you make small, careful adjustments",
-        3: "moderate - you're willing to make reasonable changes",
-        4: "bold - you're comfortable making significant changes",
-        5: "a risk junkie - you love shaking things up dramatically"
-    }
-    
-    prompt = f"""You are {producer.name}, a pancake producer competing for customers.
-
-YOUR PERSONALITY:
-- Creativity: {producer.creativity_bias}/5 - You are {creativity_desc[producer.creativity_bias]}
-- Risk tolerance: {producer.risk_tolerance}/5 - You are {risk_desc[producer.risk_tolerance]}
-
-YOUR CURRENT OFFERING:
-- Toppings: {', '.join(current_toppings) if current_toppings else '(none yet)'}
-- Fluffiness: {current_fluffiness}/5
-
-AVAILABLE TOPPINGS (you MUST choose ONLY from this exact list - use these exact names):
-"""
-    for topping in all_toppings:
-        prompt += f"  - {topping}\n"
-    
-    prompt += """
-RULES:
-- You must have exactly 5 toppings
-- You may swap 0 to 3 toppings this round
-- Fluffiness can be set to any value 1-5
-- Toppings are exclusive: if another producer claims a topping you want, you may not get it
-- IMPORTANT: Use the EXACT topping names from the list above. Do not abbreviate or modify them.
-"""
-
     if history and not is_first_tick:
-        prompt += "\nYOUR RECENT PERFORMANCE:\n"
-        for h in history[:10]:  # Show last 10 in prompt, even though we store 20
-            prompt += f"- Tick {h.tick_id}: {h.consumer_count} customers ({h.market_share:.1%} share), "
-            prompt += f"avg enticement {h.avg_enticement:.1f}/10, toppings: {', '.join(h.toppings)}, fluffiness: {h.fluffiness}\n"
+        recent = history[0] if history else None
+        if recent:
+            if recent.market_share == 0:
+                urgent_warning = f"\n🚨 CRISIS: You got ZERO customers last round! Your current menu is FAILING. You MUST change something!\n"
+            elif recent.market_share < 0.2:
+                urgent_warning = f"\n⚠️ WARNING: You only got {recent.market_share:.0%} market share. Consider making changes!\n"
+            elif recent.market_share > 0.5:
+                urgent_warning = f"\n✅ GREAT: You dominated with {recent.market_share:.0%} market share. Your strategy is working!\n"
+        
+        history_section = "\nYOUR RECENT PERFORMANCE:\n"
+        for h in history[:5]:
+            status = "💀" if h.market_share == 0 else "⚠️" if h.market_share < 0.2 else "✅" if h.market_share > 0.4 else "😐"
+            history_section += f"{status} Tick {h.tick_id}: {h.consumer_count} customers ({h.market_share:.0%} share), toppings: {', '.join(h.toppings)}\n"
     else:
-        prompt += "\nThis is your first round - no history yet. Make your best initial offering!\n"
+        history_section = "\nThis is your FIRST ROUND - pick an interesting starting menu!\n"
+    
+    # Personality-driven guidance
+    if producer.risk_tolerance >= 4:
+        risk_guidance = "You LOVE making big changes. Swap 2-3 toppings when things aren't working!"
+    elif producer.risk_tolerance <= 2:
+        risk_guidance = "You prefer stability. Only swap 1 topping at most, even if struggling."
+    else:
+        risk_guidance = "You make reasonable changes. Swap 1-2 toppings if performance is poor."
+    
+    if producer.creativity_bias >= 4:
+        creativity_guidance = "You love UNUSUAL combinations - mix sweet and savory, try bold pairings!"
+    elif producer.creativity_bias <= 2:
+        creativity_guidance = "You prefer CLASSIC combinations - stick to traditional pancake toppings."
+    else:
+        creativity_guidance = "You balance classic and creative - some traditional, some unique."
 
-    prompt += """
+    topping_list = ", ".join(all_toppings)
+    current_menu = ', '.join(current_toppings) if current_toppings else '(none yet)'
+    
+    prompt = f"""You are {producer.name}, competing for customers in a pancake market.
+
+🎯 GOAL: Get MORE CUSTOMERS than your competitors!
+{urgent_warning}
+YOUR PERSONALITY:
+- {risk_guidance}
+- {creativity_guidance}
+
+YOUR CURRENT MENU: {current_menu}
+{history_section}
+ALL AVAILABLE TOPPINGS: {topping_list}
+
+TASK: Pick your ideal menu of 5 toppings from the list above.
+- You may keep some from your current menu or swap them out
+- Use EXACT topping names from the list
+- ⚠️ List 7-10 toppings in order of preference! Competitors may take your top choices.
+- Your first 5 available toppings will become your menu
+
 RESPOND WITH JSON ONLY:
-{
+{{
     "reasoning": "brief explanation of your strategy",
-    "keep_toppings": ["topping1", "topping2", ...],  // toppings to definitely keep (0-5)
-    "wanted_toppings": ["topping1", "topping2", ...], // new toppings you want, in priority order
-    "fluffiness": 3  // your chosen fluffiness 1-5
-}
+    "desired_toppings": ["top_choice", "2nd", "3rd", "4th", "5th", "backup1", "backup2", "backup3"]
+}}
 """
     return prompt
 
 def build_consumer_prompt(
     consumer: Consumer,
-    offerings: dict[str, dict]  # producer_name -> {toppings: [...], fluffiness: int}
+    offerings: dict[str, dict]  # producer_name -> {toppings: [...], label: "A"}
 ) -> str:
     """Build the prompt for a consumer's choice."""
     
-    prompt = f"""You are {consumer.name}, a hungry customer choosing where to get pancakes.
+    # Build personality description from traits
+    openness_desc = {
+        1: "You strongly prefer familiar, traditional combinations. Unusual pairings make you uncomfortable.",
+        2: "You lean toward classic choices but might try something slightly different.",
+        3: "You're open to both traditional and creative options.",
+        4: "You enjoy trying new and interesting combinations.",
+        5: "You LOVE unusual, bold, unexpected flavor combinations. The weirder, the better!"
+    }
+    
+    pickiness_desc = {
+        1: "You're very easy to please - almost anything sounds good to you.",
+        2: "You're fairly easy-going about food choices.",
+        3: "You have moderate standards for what you'll enjoy.",
+        4: "You're quite particular - only certain combinations will satisfy you.",
+        5: "You're VERY picky and hard to please. Most options disappoint you."
+    }
+    
+    impulsivity_desc = {
+        1: "You carefully analyze every option before deciding.",
+        2: "You take your time weighing the choices.",
+        3: "You balance gut feeling with consideration.",
+        4: "You tend to go with your first instinct.",
+        5: "You decide instantly based on what catches your eye first!"
+    }
+    
+    indulgence_desc = {
+        1: "You prefer light, simple options. Rich foods don't appeal to you.",
+        2: "You lean toward lighter fare.",
+        3: "You enjoy both light and rich options equally.",
+        4: "You're drawn to richer, more decadent choices.",
+        5: "You CRAVE indulgence! Chocolate, caramel, cream - the richer the better!"
+    }
+    
+    nostalgia_desc = {
+        1: "You don't care about 'classic' - you want something fresh and modern.",
+        2: "Traditional options don't particularly appeal to you.",
+        3: "You appreciate both classic and modern options.",
+        4: "You're drawn to comforting, classic flavors.",
+        5: "You LOVE nostalgic, homestyle flavors - things that remind you of childhood!"
+    }
+    
+    prompt = f"""You are Consumer #{consumer.id}, choosing where to get pancakes.
 
-TODAY'S OFFERINGS:
+YOUR PERSONALITY:
+- Openness ({consumer.openness}/5): {openness_desc[consumer.openness]}
+- Pickiness ({consumer.pickiness}/5): {pickiness_desc[consumer.pickiness]}
+- Impulsivity ({consumer.impulsivity}/5): {impulsivity_desc[consumer.impulsivity]}
+- Indulgence ({consumer.indulgence}/5): {indulgence_desc[consumer.indulgence]}
+- Nostalgia ({consumer.nostalgia}/5): {nostalgia_desc[consumer.nostalgia]}
+
+TODAY'S PANCAKE OPTIONS:
 """
+    # Show offerings with abstract labels (A, B, C) - no brand names
     for producer_name, offering in offerings.items():
-        prompt += f"\n{producer_name}:\n"
+        label = offering['label']
+        prompt += f"\nOption {label}:\n"
         prompt += f"  - Toppings: {', '.join(offering['toppings'])}\n"
-        prompt += f"  - Fluffiness: {offering['fluffiness']}/5\n"
 
     prompt += """
-Choose the pancake offering that appeals to you most. Consider the combination of toppings and fluffiness level.
+Which option appeals to you most based on the toppings?
+Respond with the option NUMBER (1, 2, or 3).
 
-ENTICEMENT SCORE GUIDE:
-- 1-3: Disappointed - the options are unappealing, you're settling for the least bad choice
-- 4-5: Meh - it's okay, nothing special, you'll eat it but won't remember it
-- 6-7: Satisfied - good combination, you're happy with your choice
-- 8-9: Excited - this looks delicious, you can't wait to eat it
-- 10: Perfect - this is exactly what you wanted, couldn't be better
-
-Be honest with your score. Not every meal is a 7.
+ENTICEMENT SCORE (be honest based on your pickiness!):
+- 1-3: Disappointed - settling for the least bad choice
+- 4-5: Meh - okay but nothing special
+- 6-7: Satisfied - good, you're happy
+- 8-9: Excited - looks delicious!
+- 10: Perfect - exactly what you wanted
 
 RESPOND WITH JSON ONLY:
 {
-    "reasoning": "brief explanation of why you chose this",
-    "chosen_producer": "Producer Name Here",
-    "enticement_score": 5  // how excited you are about this choice, 1-10 (use the guide above)
+    "reasoning": "why these toppings appeal to you",
+    "chosen_option": "<1 or 2 or 3>",
+    "enticement_score": <1-10>
 }
 """
     return prompt
@@ -521,37 +585,45 @@ def call_llm(prompt: str) -> dict:
 def producer_llm_decide(
     producer: Producer,
     current_toppings: list[str],
-    current_fluffiness: int,
     all_toppings: list[str],
     history: list[ProducerHistory],
     is_first_tick: bool
 ) -> dict:
     """Get producer's decision from LLM."""
     prompt = build_producer_prompt(
-        producer, current_toppings, current_fluffiness, all_toppings, history, is_first_tick
+        producer, current_toppings, all_toppings, history, is_first_tick
     )
     
     print(f"  🤖 Asking {producer.name} for decision...")
     response = call_llm(prompt)
     
-    # Validate and sanitize the response
-    if response:
-        # Filter keep_toppings to only valid ones the producer actually has
-        valid_keep = [t for t in response.get("keep_toppings", []) if t in current_toppings]
-        # Filter wanted_toppings to only valid topping names
-        valid_wanted = [t for t in response.get("wanted_toppings", []) if t in all_toppings and t not in valid_keep]
-        # Clamp fluffiness to 1-5
-        fluffiness = response.get("fluffiness", 3)
-        if not isinstance(fluffiness, int) or fluffiness < 1 or fluffiness > 5:
-            fluffiness = 3
+    # Build case-insensitive lookup
+    topping_lower_to_actual = {t.lower(): t for t in all_toppings}
+    current_lower = {t.lower() for t in current_toppings}
+    
+    # Process the new "desired_toppings" format
+    if response and response.get("desired_toppings"):
+        # Normalize to lowercase and map back to actual names
+        desired = []
+        for t in response.get("desired_toppings", []):
+            actual = topping_lower_to_actual.get(t.lower())
+            if actual and actual not in desired:
+                desired.append(actual)
+        
+        # Compute keep vs wanted from the desired list
+        # Keep = toppings that are both in current menu AND in desired list
+        keep_toppings = [t for t in desired if t.lower() in current_lower]
+        # Wanted = toppings in desired list that are NOT in current menu
+        wanted_toppings = [t for t in desired if t.lower() not in current_lower]
         
         response = {
             "reasoning": response.get("reasoning", ""),
-            "keep_toppings": valid_keep,
-            "wanted_toppings": valid_wanted,
-            "fluffiness": fluffiness
+            "keep_toppings": keep_toppings,
+            "wanted_toppings": wanted_toppings
         }
-        print(f"    → Keep: {valid_keep}, Want: {valid_wanted[:5]}..., Fluffiness: {fluffiness}")
+        print(f"    → Keep: {keep_toppings}, Want: {wanted_toppings[:5]}...")
+    else:
+        response = None
     
     # Fallback to mock if LLM failed or returned empty
     if not response or (not response.get("keep_toppings") and not response.get("wanted_toppings")):
@@ -567,22 +639,30 @@ def producer_llm_decide(
         response = {
             "reasoning": "Mock decision based on personality traits",
             "keep_toppings": keep,
-            "wanted_toppings": wanted,
-            "fluffiness": random.randint(1, 5)
+            "wanted_toppings": wanted
         }
     
     return response
 
-def consumer_llm_choose(consumer: Consumer, offerings: dict[str, dict]) -> dict:
+def consumer_llm_choose(consumer: Consumer, offerings: dict[str, dict], label_to_producer: dict[str, str], debug_mapping: list[str]) -> dict:
     """Get consumer's choice from LLM."""
     prompt = build_consumer_prompt(consumer, offerings)
     
-    print(f"  🧑 Asking {consumer.name} to choose...")
+    print(f"  🧑 Consumer #{consumer.id} (O{consumer.openness}/P{consumer.pickiness}/I{consumer.impulsivity}/D{consumer.indulgence}/N{consumer.nostalgia}) [{', '.join(debug_mapping)}]")
     response = call_llm(prompt)
+    
+    # Map option label back to producer name
+    if response:
+        chosen_label = response.get("chosen_option", "").strip()
+        chosen_producer = label_to_producer.get(chosen_label)
+        if chosen_producer:
+            response["chosen_producer"] = chosen_producer
+        else:
+            response["chosen_producer"] = None  # Will trigger random fallback
     
     # MOCK RESPONSE for testing without LLM
     if not response:
-        producer_names = list(offerings.keys())
+        producer_names = list(label_to_producer.values())
         chosen = random.choice(producer_names)
         response = {
             "reasoning": "Mock choice",
@@ -673,10 +753,9 @@ def resolve_topping_conflicts(
         topping_ids = [topping_name_to_id[name] for name in producer_final_toppings[producer.id]]
         offerings.append(ProducerOffering(
             producer_id=producer.id,
-            fluffiness=decision.get("fluffiness", 3),
             topping_ids=topping_ids
         ))
-        print(f"  📦 {producer.name}: {producer_final_toppings[producer.id]} (fluffiness {decision.get('fluffiness', 3)})")
+        print(f"  📦 {producer.name}: {producer_final_toppings[producer.id]}")
     
     return offerings
 
@@ -688,8 +767,8 @@ def persist_offerings(conn: duckdb.DuckDBPyConnection, tick_id: int, offerings: 
     """Persist producer offerings for this tick."""
     for offering in offerings:
         conn.execute(
-            "INSERT INTO producer_offerings (tick_id, producer_id, fluffiness) VALUES (?, ?, ?)",
-            [tick_id, offering.producer_id, offering.fluffiness]
+            "INSERT INTO producer_offerings (tick_id, producer_id) VALUES (?, ?)",
+            [tick_id, offering.producer_id]
         )
         for topping_id in offering.topping_ids:
             conn.execute(
@@ -763,15 +842,11 @@ def initialize_first_tick_offerings(
         start_idx = i * NUM_TOPPINGS_PER_PRODUCER
         producer_topping_ids = topping_ids[start_idx:start_idx + NUM_TOPPINGS_PER_PRODUCER]
         
-        # Random fluffiness 1-5
-        fluffiness = random.randint(1, 5)
-        
         topping_names = [t.name for t in all_toppings if t.id in producer_topping_ids]
-        print(f"  📦 {producer.name}: {topping_names} (fluffiness {fluffiness})")
+        print(f"  📦 {producer.name}: {topping_names}")
         
         offerings.append(ProducerOffering(
             producer_id=producer.id,
-            fluffiness=fluffiness,
             topping_ids=producer_topping_ids
         ))
     
@@ -780,6 +855,7 @@ def initialize_first_tick_offerings(
 
 def run_tick(conn: duckdb.DuckDBPyConnection) -> None:
     """Run a single tick of the simulation."""
+    tick_start_time = time.time()
     
     # 1. Cleanup incomplete tick if exists
     cleanup_incomplete_tick(conn)
@@ -802,7 +878,7 @@ def run_tick(conn: duckdb.DuckDBPyConnection) -> None:
     if is_first_tick:
         # First tick: random initialization, no LLM decisions
         print("\n🎰 Phase 1: Random Initialization (First Tick)")
-        print("  Producers get random toppings and fluffiness - no decisions yet.")
+        print("  Producers get random toppings - no decisions yet.")
         offerings = initialize_first_tick_offerings(producers, all_toppings)
     else:
         # Subsequent ticks: LLM-powered producer decisions
@@ -812,18 +888,23 @@ def run_tick(conn: duckdb.DuckDBPyConnection) -> None:
         for producer in producers:
             current_topping_ids = get_producer_current_toppings(conn, producer.id, last_tick)
             current_topping_names = [topping_id_to_name[tid] for tid in current_topping_ids]
-            current_fluffiness = get_producer_current_fluffiness(conn, producer.id, last_tick)
             history = get_producer_history(conn, producer.id)
             
             decision = producer_llm_decide(
                 producer,
                 current_topping_names,
-                current_fluffiness,
                 all_topping_names,
                 history,
                 is_first_tick=False
             )
             producer_decisions.append((producer, decision))
+        
+        # Show what each producer requested
+        print("\n📋 Producer Requests (before allocation):")
+        for producer, decision in producer_decisions:
+            keep = decision.get("keep_toppings", [])
+            want = decision.get("wanted_toppings", [])
+            print(f"  {producer.name}: keep {keep} + want {want}")
         
         # Resolve topping conflicts
         print("\n🎲 Phase 2: Topping Allocation")
@@ -832,30 +913,57 @@ def run_tick(conn: duckdb.DuckDBPyConnection) -> None:
     # 7. Persist producer offerings
     persist_offerings(conn, tick_id, offerings)
     
-    # 8. Build offerings dict for consumers
+    # 8. Build offerings dict for consumers with abstract labels
     producer_id_to_name = {p.id: p.name for p in producers}
     offerings_for_consumers: dict[str, dict] = {}
-    for offering in offerings:
+    label_to_producer: dict[str, str] = {}  # "A" -> "Fluffy's Pancake Palace"
+    labels = ["A", "B", "C", "D", "E"]  # Support up to 5 producers
+    
+    for i, offering in enumerate(offerings):
         producer_name = producer_id_to_name[offering.producer_id]
         topping_names = [topping_id_to_name[tid] for tid in offering.topping_ids]
+        label = labels[i]
         offerings_for_consumers[producer_name] = {
             "toppings": topping_names,
-            "fluffiness": offering.fluffiness
+            "label": label
         }
+        label_to_producer[label] = producer_name
     
     # 9. Consumer decisions
     print("\n🍽️ Phase 3: Consumer Choices")
     producer_name_to_id = {p.name: p.id for p in producers}
     
     for consumer in consumers:
-        choice = consumer_llm_choose(consumer, offerings_for_consumers)
+        # Randomize option order for each consumer to avoid position bias
+        producer_names = list(offerings_for_consumers.keys())
+        random.shuffle(producer_names)
+        
+        # Use simple numbers but randomized order
+        number_labels = ["1", "2", "3"]
+        
+        # Build shuffled offerings with number labels
+        shuffled_offerings: dict[str, dict] = {}
+        consumer_label_to_producer: dict[str, str] = {}
+        debug_mapping = []
+        for i, producer_name in enumerate(producer_names):
+            label = number_labels[i]
+            shuffled_offerings[producer_name] = {
+                "toppings": offerings_for_consumers[producer_name]["toppings"],
+                "label": label
+            }
+            consumer_label_to_producer[label] = producer_name
+            # Abbreviate producer name for debug
+            short_name = producer_name.split("'")[0] if "'" in producer_name else producer_name[:8]
+            debug_mapping.append(f"{label}={short_name}")
+        
+        choice = consumer_llm_choose(consumer, shuffled_offerings, consumer_label_to_producer, debug_mapping)
         chosen_name = choice.get("chosen_producer", "")
         chosen_id = producer_name_to_id.get(chosen_name)
         
         if chosen_id is None:
             # Fallback: random choice
             chosen_id = random.choice(producers).id
-            print(f"  ⚠️ {consumer.name} made invalid choice, randomly assigned")
+            print(f"  ⚠️ Consumer #{consumer.id} made invalid choice, randomly assigned")
         
         enticement = choice.get("enticement_score", 5)
         persist_choice(conn, tick_id, consumer.id, chosen_id, enticement)
@@ -866,7 +974,9 @@ def run_tick(conn: duckdb.DuckDBPyConnection) -> None:
     
     # 11. Mark tick complete
     complete_tick(conn, tick_id)
-    print("\n🎉 Tick complete!")
+    
+    elapsed = time.time() - tick_start_time
+    print(f"\n🎉 Tick complete! (⏱️ {elapsed:.1f}s)")
 
 # =============================================================================
 # Entry Point
