@@ -2,3 +2,5 @@ todo
 *venv
 tmp_notes.txt
 learnings.md
+*.duckdb
+__pycache__/
