@@ -16,6 +16,7 @@ spec:
       containers:
       - name: minio
         image: minio/minio:latest
+        imagePullPolicy: Never
         ports:
         - containerPort: 9000
           name: s3-api
