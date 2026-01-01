@@ -1,0 +1,13 @@
+version: 2
+
+sources:
+  - name: pancake_simulation
+    tables:
+      - name: consumer_choices
+      - name: consumers
+      - name: producer_offerings
+      - name: producer_round_stats
+      - name: producer_toppings
+      - name: producers
+      - name: ticks
+      - name: toppings
