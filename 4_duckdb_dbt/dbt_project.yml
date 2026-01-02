@@ -37,3 +37,5 @@ models:
       +schema: pancakes_extract
     staging:
       +schema: pancake_analytics
+    mart:
+      +schema: pancake_analytics
