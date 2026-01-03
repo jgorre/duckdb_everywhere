@@ -2,6 +2,8 @@ version: 2
 
 sources:
   - name: pancake_simulation
+    database: pancakes_postgres
+    schema: public
     tables:
       - name: consumer_choices
       - name: consumers
