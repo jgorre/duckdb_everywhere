@@ -36,6 +36,8 @@ models:
     raw:
       +schema: pancakes_extract
     staging:
-      +schema: pancake_analytics
+      +schema: pancakes_staging
+      old:
+        +schema: pancakes_old_staging
     mart:
-      +schema: pancake_analytics
+      +schema: pancakes_marts
