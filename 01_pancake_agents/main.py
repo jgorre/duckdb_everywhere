@@ -10,7 +10,9 @@ Usage:
 """
 
 import argparse
-import duckdb
+import os
+import psycopg2
+from psycopg2.extras import RealDictCursor
 from datetime import datetime
 from dataclasses import dataclass
 from typing import Optional
@@ -24,7 +26,13 @@ import urllib.error
 # Configuration
 # =============================================================================
 
-DB_PATH = "pancake_world.duckdb"
+# PostgreSQL connection config - defaults to NodePort for local development
+DB_USER = os.getenv("DB_USER", "pancake_db_reader_writer")
+DB_PASSWORD = os.getenv("DB_PASSWORD", "supersecretpasswordoftheages")
+DB_HOST = os.getenv("DB_HOST", "192.168.64.2")
+DB_PORT = os.getenv("DB_PORT", "30032")
+DB_NAME = os.getenv("DB_NAME", "happy_pancakes")
+
 HISTORY_WINDOW = 20  # How many past ticks producers can see
 NUM_TOPPINGS_PER_PRODUCER = 5
 MAX_TOPPING_SWAPS = 3
@@ -98,72 +106,73 @@ class ProducerHistory:
 # Database Setup
 # =============================================================================
 
-SCHEMA_SQL = """
--- Core entities
-CREATE TABLE IF NOT EXISTS producers (
-    id INTEGER PRIMARY KEY,
-    name TEXT NOT NULL,
-    creativity_bias INTEGER CHECK (creativity_bias BETWEEN 1 AND 5),
-    risk_tolerance INTEGER CHECK (risk_tolerance BETWEEN 1 AND 5)
-);
+# Schema SQL split into individual statements for PostgreSQL
+SCHEMA_STATEMENTS = [
+    # Core entities
+    """CREATE TABLE IF NOT EXISTS producers (
+        id SERIAL PRIMARY KEY,
+        name TEXT NOT NULL,
+        creativity_bias INTEGER CHECK (creativity_bias BETWEEN 1 AND 5),
+        risk_tolerance INTEGER CHECK (risk_tolerance BETWEEN 1 AND 5)
+    )""",
+    
+    """CREATE TABLE IF NOT EXISTS consumers (
+        id SERIAL PRIMARY KEY,
+        openness INTEGER CHECK (openness BETWEEN 1 AND 5),
+        pickiness INTEGER CHECK (pickiness BETWEEN 1 AND 5),
+        impulsivity INTEGER CHECK (impulsivity BETWEEN 1 AND 5),
+        indulgence INTEGER CHECK (indulgence BETWEEN 1 AND 5),
+        nostalgia INTEGER CHECK (nostalgia BETWEEN 1 AND 5)
+    )""",
+    
+    """CREATE TABLE IF NOT EXISTS toppings (
+        id SERIAL PRIMARY KEY,
+        name TEXT NOT NULL UNIQUE
+    )""",
+    
+    # Tick state
+    """CREATE TABLE IF NOT EXISTS ticks (
+        id SERIAL PRIMARY KEY,
+        started_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        completed_at TIMESTAMP  -- NULL until tick finishes
+    )""",
+    
+    # Per-tick snapshots (append-only)
+    """CREATE TABLE IF NOT EXISTS producer_offerings (
+        tick_id INTEGER REFERENCES ticks(id),
+        producer_id INTEGER REFERENCES producers(id),
+        PRIMARY KEY (tick_id, producer_id)
+    )""",
+    
+    """CREATE TABLE IF NOT EXISTS producer_toppings (
+        tick_id INTEGER REFERENCES ticks(id),
+        producer_id INTEGER REFERENCES producers(id),
+        topping_id INTEGER REFERENCES toppings(id),
+        PRIMARY KEY (tick_id, producer_id, topping_id)
+    )""",
+    
+    """CREATE TABLE IF NOT EXISTS consumer_choices (
+        tick_id INTEGER REFERENCES ticks(id),
+        consumer_id INTEGER REFERENCES consumers(id),
+        producer_id INTEGER REFERENCES producers(id),
+        enticement_score INTEGER CHECK (enticement_score BETWEEN 1 AND 10),
+        PRIMARY KEY (tick_id, consumer_id)
+    )""",
+    
+    # Derived stats (computed at end of tick)
+    """CREATE TABLE IF NOT EXISTS producer_round_stats (
+        tick_id INTEGER REFERENCES ticks(id),
+        producer_id INTEGER REFERENCES producers(id),
+        consumer_count INTEGER,
+        market_share REAL,
+        avg_enticement REAL,
+        median_enticement REAL,
+        PRIMARY KEY (tick_id, producer_id)
+    )""",
+]
 
-CREATE TABLE IF NOT EXISTS consumers (
-    id INTEGER PRIMARY KEY,
-    openness INTEGER CHECK (openness BETWEEN 1 AND 5),
-    pickiness INTEGER CHECK (pickiness BETWEEN 1 AND 5),
-    impulsivity INTEGER CHECK (impulsivity BETWEEN 1 AND 5),
-    indulgence INTEGER CHECK (indulgence BETWEEN 1 AND 5),
-    nostalgia INTEGER CHECK (nostalgia BETWEEN 1 AND 5)
-);
-
-CREATE TABLE IF NOT EXISTS toppings (
-    id INTEGER PRIMARY KEY,
-    name TEXT NOT NULL UNIQUE
-);
-
--- Tick state
-CREATE TABLE IF NOT EXISTS ticks (
-    id INTEGER PRIMARY KEY,
-    started_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    completed_at TIMESTAMP  -- NULL until tick finishes
-);
-
--- Per-tick snapshots (append-only)
-CREATE TABLE IF NOT EXISTS producer_offerings (
-    tick_id INTEGER REFERENCES ticks(id),
-    producer_id INTEGER REFERENCES producers(id),
-    PRIMARY KEY (tick_id, producer_id)
-);
-
-CREATE TABLE IF NOT EXISTS producer_toppings (
-    tick_id INTEGER REFERENCES ticks(id),
-    producer_id INTEGER REFERENCES producers(id),
-    topping_id INTEGER REFERENCES toppings(id),
-    PRIMARY KEY (tick_id, producer_id, topping_id)
-);
-
--- Exclusivity: each topping used by at most one producer per tick
-CREATE UNIQUE INDEX IF NOT EXISTS idx_exclusive_topping ON producer_toppings(tick_id, topping_id);
-
-CREATE TABLE IF NOT EXISTS consumer_choices (
-    tick_id INTEGER REFERENCES ticks(id),
-    consumer_id INTEGER REFERENCES consumers(id),
-    producer_id INTEGER REFERENCES producers(id),
-    enticement_score INTEGER CHECK (enticement_score BETWEEN 1 AND 10),
-    PRIMARY KEY (tick_id, consumer_id)
-);
-
--- Derived stats (computed at end of tick)
-CREATE TABLE IF NOT EXISTS producer_round_stats (
-    tick_id INTEGER REFERENCES ticks(id),
-    producer_id INTEGER REFERENCES producers(id),
-    consumer_count INTEGER,
-    market_share REAL,
-    avg_enticement REAL,
-    median_enticement REAL,
-    PRIMARY KEY (tick_id, producer_id)
-);
-"""
+# Separate index creation (CREATE UNIQUE INDEX IF NOT EXISTS not universally supported)
+INDEX_SQL = """CREATE UNIQUE INDEX IF NOT EXISTS idx_exclusive_topping ON producer_toppings(tick_id, topping_id)"""
 
 # =============================================================================
 # Seed Data
@@ -202,107 +211,138 @@ SEED_TOPPINGS = [
     "matcha powder", "lavender honey", "mango", "passion fruit", "cardamom sugar",
 ]
 
-def init_db(conn: duckdb.DuckDBPyConnection, reset: bool = False) -> None:
+def init_db(conn, reset: bool = False) -> None:
     """Initialize database schema and seed data."""
+    cur = conn.cursor()
+    
     if reset:
         print("🗑️  Dropping all tables...")
-        conn.execute("DROP TABLE IF EXISTS producer_round_stats")
-        conn.execute("DROP TABLE IF EXISTS consumer_choices")
-        conn.execute("DROP TABLE IF EXISTS producer_toppings")
-        conn.execute("DROP TABLE IF EXISTS producer_offerings")
-        conn.execute("DROP TABLE IF EXISTS ticks")
-        conn.execute("DROP TABLE IF EXISTS toppings")
-        conn.execute("DROP TABLE IF EXISTS consumers")
-        conn.execute("DROP TABLE IF EXISTS producers")
+        cur.execute("DROP TABLE IF EXISTS producer_round_stats CASCADE")
+        cur.execute("DROP TABLE IF EXISTS consumer_choices CASCADE")
+        cur.execute("DROP TABLE IF EXISTS producer_toppings CASCADE")
+        cur.execute("DROP TABLE IF EXISTS producer_offerings CASCADE")
+        cur.execute("DROP TABLE IF EXISTS ticks CASCADE")
+        cur.execute("DROP TABLE IF EXISTS toppings CASCADE")
+        cur.execute("DROP TABLE IF EXISTS consumers CASCADE")
+        cur.execute("DROP TABLE IF EXISTS producers CASCADE")
+        conn.commit()
     
     print("📋 Creating schema...")
-    # DuckDB doesn't have executescript, so split and execute each statement
-    for statement in SCHEMA_SQL.split(";"):
-        statement = statement.strip()
-        if statement:
-            conn.execute(statement)
+    for statement in SCHEMA_STATEMENTS:
+        cur.execute(statement)
+    
+    # Create index (may already exist)
+    try:
+        cur.execute(INDEX_SQL)
+    except psycopg2.errors.DuplicateTable:
+        conn.rollback()  # Index already exists, continue
+    
+    conn.commit()
     
     # Check if already seeded
-    existing = conn.execute("SELECT COUNT(*) FROM producers").fetchone()[0]
+    cur.execute("SELECT COUNT(*) FROM producers")
+    existing = cur.fetchone()[0]
     if existing > 0:
         print("✅ Database already seeded.")
+        cur.close()
         return
     
     print("🌱 Seeding data...")
     
-    # Seed producers
+    # Seed producers - use INSERT with explicit IDs and reset sequence
     for i, (name, creativity, risk) in enumerate(SEED_PRODUCERS, start=1):
-        conn.execute(
-            "INSERT INTO producers (id, name, creativity_bias, risk_tolerance) VALUES (?, ?, ?, ?)",
-            [i, name, creativity, risk]
+        cur.execute(
+            "INSERT INTO producers (id, name, creativity_bias, risk_tolerance) VALUES (%s, %s, %s, %s)",
+            (i, name, creativity, risk)
         )
+    cur.execute("SELECT setval('producers_id_seq', %s)", (len(SEED_PRODUCERS),))
     
     # Seed consumers
     for i, (openness, pickiness, impulsivity, indulgence, nostalgia) in enumerate(SEED_CONSUMERS, start=1):
-        conn.execute(
-            "INSERT INTO consumers (id, openness, pickiness, impulsivity, indulgence, nostalgia) VALUES (?, ?, ?, ?, ?, ?)",
-            [i, openness, pickiness, impulsivity, indulgence, nostalgia]
+        cur.execute(
+            "INSERT INTO consumers (id, openness, pickiness, impulsivity, indulgence, nostalgia) VALUES (%s, %s, %s, %s, %s, %s)",
+            (i, openness, pickiness, impulsivity, indulgence, nostalgia)
         )
+    cur.execute("SELECT setval('consumers_id_seq', %s)", (len(SEED_CONSUMERS),))
     
     # Seed toppings
     for i, name in enumerate(SEED_TOPPINGS, start=1):
-        conn.execute("INSERT INTO toppings (id, name) VALUES (?, ?)", [i, name])
+        cur.execute("INSERT INTO toppings (id, name) VALUES (%s, %s)", (i, name))
+    cur.execute("SELECT setval('toppings_id_seq', %s)", (len(SEED_TOPPINGS),))
     
+    conn.commit()
+    cur.close()
     print(f"✅ Seeded {len(SEED_PRODUCERS)} producers, {len(SEED_CONSUMERS)} consumers, {len(SEED_TOPPINGS)} toppings.")
 
 # =============================================================================
 # State Retrieval
 # =============================================================================
 
-def get_producers(conn: duckdb.DuckDBPyConnection) -> list[Producer]:
+def get_producers(conn) -> list[Producer]:
     """Get all producers."""
-    rows = conn.execute("SELECT id, name, creativity_bias, risk_tolerance FROM producers ORDER BY id").fetchall()
+    cur = conn.cursor()
+    cur.execute("SELECT id, name, creativity_bias, risk_tolerance FROM producers ORDER BY id")
+    rows = cur.fetchall()
+    cur.close()
     return [Producer(id=r[0], name=r[1], creativity_bias=r[2], risk_tolerance=r[3]) for r in rows]
 
-def get_consumers(conn: duckdb.DuckDBPyConnection) -> list[Consumer]:
+def get_consumers(conn) -> list[Consumer]:
     """Get all consumers."""
-    rows = conn.execute("SELECT id, openness, pickiness, impulsivity, indulgence, nostalgia FROM consumers ORDER BY id").fetchall()
+    cur = conn.cursor()
+    cur.execute("SELECT id, openness, pickiness, impulsivity, indulgence, nostalgia FROM consumers ORDER BY id")
+    rows = cur.fetchall()
+    cur.close()
     return [Consumer(id=r[0], openness=r[1], pickiness=r[2], impulsivity=r[3], indulgence=r[4], nostalgia=r[5]) for r in rows]
 
-def get_all_toppings(conn: duckdb.DuckDBPyConnection) -> list[Topping]:
+def get_all_toppings(conn) -> list[Topping]:
     """Get all available toppings."""
-    rows = conn.execute("SELECT id, name FROM toppings ORDER BY id").fetchall()
+    cur = conn.cursor()
+    cur.execute("SELECT id, name FROM toppings ORDER BY id")
+    rows = cur.fetchall()
+    cur.close()
     return [Topping(id=r[0], name=r[1]) for r in rows]
 
-def get_latest_completed_tick(conn: duckdb.DuckDBPyConnection) -> Optional[int]:
+def get_latest_completed_tick(conn) -> Optional[int]:
     """Get the most recent completed tick ID, or None if no ticks yet."""
-    result = conn.execute(
-        "SELECT id FROM ticks WHERE completed_at IS NOT NULL ORDER BY id DESC LIMIT 1"
-    ).fetchone()
+    cur = conn.cursor()
+    cur.execute("SELECT id FROM ticks WHERE completed_at IS NOT NULL ORDER BY id DESC LIMIT 1")
+    result = cur.fetchone()
+    cur.close()
     return result[0] if result else None
 
-def get_producer_current_toppings(conn: duckdb.DuckDBPyConnection, producer_id: int, tick_id: int) -> list[int]:
+def get_producer_current_toppings(conn, producer_id: int, tick_id: int) -> list[int]:
     """Get topping IDs for a producer from a specific tick."""
-    rows = conn.execute(
-        "SELECT topping_id FROM producer_toppings WHERE producer_id = ? AND tick_id = ? ORDER BY topping_id",
-        [producer_id, tick_id]
-    ).fetchall()
+    cur = conn.cursor()
+    cur.execute(
+        "SELECT topping_id FROM producer_toppings WHERE producer_id = %s AND tick_id = %s ORDER BY topping_id",
+        (producer_id, tick_id)
+    )
+    rows = cur.fetchall()
+    cur.close()
     return [r[0] for r in rows]
 
-def get_producer_history(conn: duckdb.DuckDBPyConnection, producer_id: int, limit: int = HISTORY_WINDOW) -> list[ProducerHistory]:
+def get_producer_history(conn, producer_id: int, limit: int = HISTORY_WINDOW) -> list[ProducerHistory]:
     """Get historical stats for a producer (most recent first)."""
-    rows = conn.execute("""
+    cur = conn.cursor()
+    cur.execute("""
         SELECT 
             s.tick_id,
             s.consumer_count,
             s.market_share,
             s.avg_enticement,
             s.median_enticement,
-            GROUP_CONCAT(t.name ORDER BY t.name) as topping_names
+            string_agg(t.name, ',' ORDER BY t.name) as topping_names
         FROM producer_round_stats s
         JOIN producer_offerings o ON s.tick_id = o.tick_id AND s.producer_id = o.producer_id
         JOIN producer_toppings pt ON s.tick_id = pt.tick_id AND s.producer_id = pt.producer_id
         JOIN toppings t ON pt.topping_id = t.id
-        WHERE s.producer_id = ?
+        WHERE s.producer_id = %s
         GROUP BY s.tick_id, s.consumer_count, s.market_share, s.avg_enticement, s.median_enticement
         ORDER BY s.tick_id DESC
-        LIMIT ?
-    """, [producer_id, limit]).fetchall()
+        LIMIT %s
+    """, (producer_id, limit))
+    rows = cur.fetchall()
+    cur.close()
     
     return [
         ProducerHistory(
@@ -316,12 +356,15 @@ def get_producer_history(conn: duckdb.DuckDBPyConnection, producer_id: int, limi
         for r in rows
     ]
 
-def get_toppings_used_last_tick(conn: duckdb.DuckDBPyConnection, tick_id: int) -> dict[int, list[int]]:
+def get_toppings_used_last_tick(conn, tick_id: int) -> dict[int, list[int]]:
     """Get mapping of producer_id -> topping_ids from a tick."""
-    rows = conn.execute(
-        "SELECT producer_id, topping_id FROM producer_toppings WHERE tick_id = ?",
-        [tick_id]
-    ).fetchall()
+    cur = conn.cursor()
+    cur.execute(
+        "SELECT producer_id, topping_id FROM producer_toppings WHERE tick_id = %s",
+        (tick_id,)
+    )
+    rows = cur.fetchall()
+    cur.close()
     
     result: dict[int, list[int]] = {}
     for producer_id, topping_id in rows:
@@ -334,40 +377,45 @@ def get_toppings_used_last_tick(conn: duckdb.DuckDBPyConnection, tick_id: int) -
 # Tick Management
 # =============================================================================
 
-def cleanup_incomplete_tick(conn: duckdb.DuckDBPyConnection) -> None:
+def cleanup_incomplete_tick(conn) -> None:
     """Remove any incomplete tick and its associated data."""
-    incomplete = conn.execute(
-        "SELECT id FROM ticks WHERE completed_at IS NULL"
-    ).fetchone()
+    cur = conn.cursor()
+    cur.execute("SELECT id FROM ticks WHERE completed_at IS NULL")
+    incomplete = cur.fetchone()
     
     if incomplete:
         tick_id = incomplete[0]
         print(f"🧹 Cleaning up incomplete tick {tick_id}...")
-        conn.execute("DELETE FROM producer_round_stats WHERE tick_id = ?", [tick_id])
-        conn.execute("DELETE FROM consumer_choices WHERE tick_id = ?", [tick_id])
-        conn.execute("DELETE FROM producer_toppings WHERE tick_id = ?", [tick_id])
-        conn.execute("DELETE FROM producer_offerings WHERE tick_id = ?", [tick_id])
-        conn.execute("DELETE FROM ticks WHERE id = ?", [tick_id])
+        cur.execute("DELETE FROM producer_round_stats WHERE tick_id = %s", (tick_id,))
+        cur.execute("DELETE FROM consumer_choices WHERE tick_id = %s", (tick_id,))
+        cur.execute("DELETE FROM producer_toppings WHERE tick_id = %s", (tick_id,))
+        cur.execute("DELETE FROM producer_offerings WHERE tick_id = %s", (tick_id,))
+        cur.execute("DELETE FROM ticks WHERE id = %s", (tick_id,))
+        conn.commit()
+    cur.close()
 
-def start_tick(conn: duckdb.DuckDBPyConnection) -> int:
+def start_tick(conn) -> int:
     """Start a new tick and return its ID."""
-    # Get next tick ID
-    result = conn.execute("SELECT COALESCE(MAX(id), 0) + 1 FROM ticks").fetchone()
-    tick_id = result[0]
-    
-    conn.execute(
-        "INSERT INTO ticks (id, started_at) VALUES (?, ?)",
-        [tick_id, datetime.now()]
+    cur = conn.cursor()
+    cur.execute(
+        "INSERT INTO ticks (started_at) VALUES (%s) RETURNING id",
+        (datetime.now(),)
     )
+    tick_id = cur.fetchone()[0]
+    conn.commit()
+    cur.close()
     print(f"🎬 Started tick {tick_id}")
     return tick_id
 
-def complete_tick(conn: duckdb.DuckDBPyConnection, tick_id: int) -> None:
+def complete_tick(conn, tick_id: int) -> None:
     """Mark a tick as complete."""
-    conn.execute(
-        "UPDATE ticks SET completed_at = ? WHERE id = ?",
-        [datetime.now(), tick_id]
+    cur = conn.cursor()
+    cur.execute(
+        "UPDATE ticks SET completed_at = %s WHERE id = %s",
+        (datetime.now(), tick_id)
     )
+    conn.commit()
+    cur.close()
     print(f"✅ Completed tick {tick_id}")
 
 # =============================================================================
@@ -763,38 +811,46 @@ def resolve_topping_conflicts(
 # Persistence
 # =============================================================================
 
-def persist_offerings(conn: duckdb.DuckDBPyConnection, tick_id: int, offerings: list[ProducerOffering]) -> None:
+def persist_offerings(conn, tick_id: int, offerings: list[ProducerOffering]) -> None:
     """Persist producer offerings for this tick."""
+    cur = conn.cursor()
     for offering in offerings:
-        conn.execute(
-            "INSERT INTO producer_offerings (tick_id, producer_id) VALUES (?, ?)",
-            [tick_id, offering.producer_id]
+        cur.execute(
+            "INSERT INTO producer_offerings (tick_id, producer_id) VALUES (%s, %s)",
+            (tick_id, offering.producer_id)
         )
         for topping_id in offering.topping_ids:
-            conn.execute(
-                "INSERT INTO producer_toppings (tick_id, producer_id, topping_id) VALUES (?, ?, ?)",
-                [tick_id, offering.producer_id, topping_id]
+            cur.execute(
+                "INSERT INTO producer_toppings (tick_id, producer_id, topping_id) VALUES (%s, %s, %s)",
+                (tick_id, offering.producer_id, topping_id)
             )
+    conn.commit()
+    cur.close()
 
-def persist_choice(conn: duckdb.DuckDBPyConnection, tick_id: int, consumer_id: int, producer_id: int, enticement_score: int) -> None:
+def persist_choice(conn, tick_id: int, consumer_id: int, producer_id: int, enticement_score: int) -> None:
     """Persist a consumer's choice."""
-    conn.execute(
-        "INSERT INTO consumer_choices (tick_id, consumer_id, producer_id, enticement_score) VALUES (?, ?, ?, ?)",
-        [tick_id, consumer_id, producer_id, enticement_score]
+    cur = conn.cursor()
+    cur.execute(
+        "INSERT INTO consumer_choices (tick_id, consumer_id, producer_id, enticement_score) VALUES (%s, %s, %s, %s)",
+        (tick_id, consumer_id, producer_id, enticement_score)
     )
+    conn.commit()
+    cur.close()
 
-def compute_and_persist_stats(conn: duckdb.DuckDBPyConnection, tick_id: int, producers: list[Producer]) -> None:
+def compute_and_persist_stats(conn, tick_id: int, producers: list[Producer]) -> None:
     """Compute and persist round statistics for each producer."""
-    total_consumers = conn.execute(
-        "SELECT COUNT(*) FROM consumer_choices WHERE tick_id = ?", [tick_id]
-    ).fetchone()[0]
+    cur = conn.cursor()
+    
+    cur.execute("SELECT COUNT(*) FROM consumer_choices WHERE tick_id = %s", (tick_id,))
+    total_consumers = cur.fetchone()[0]
     
     for producer in producers:
         # Get consumer count and enticement scores
-        rows = conn.execute(
-            "SELECT enticement_score FROM consumer_choices WHERE tick_id = ? AND producer_id = ?",
-            [tick_id, producer.id]
-        ).fetchall()
+        cur.execute(
+            "SELECT enticement_score FROM consumer_choices WHERE tick_id = %s AND producer_id = %s",
+            (tick_id, producer.id)
+        )
+        rows = cur.fetchall()
         
         consumer_count = len(rows)
         market_share = consumer_count / total_consumers if total_consumers > 0 else 0
@@ -809,14 +865,17 @@ def compute_and_persist_stats(conn: duckdb.DuckDBPyConnection, tick_id: int, pro
             avg_enticement = 0
             median_enticement = 0
         
-        conn.execute(
+        cur.execute(
             """INSERT INTO producer_round_stats 
                (tick_id, producer_id, consumer_count, market_share, avg_enticement, median_enticement)
-               VALUES (?, ?, ?, ?, ?, ?)""",
-            [tick_id, producer.id, consumer_count, market_share, avg_enticement, median_enticement]
+               VALUES (%s, %s, %s, %s, %s, %s)""",
+            (tick_id, producer.id, consumer_count, market_share, avg_enticement, median_enticement)
         )
         
         print(f"  📊 {producer.name}: {consumer_count} customers ({market_share:.1%}), avg enticement {avg_enticement:.1f}")
+    
+    conn.commit()
+    cur.close()
 
 # =============================================================================
 # Main Tick Loop
@@ -853,7 +912,7 @@ def initialize_first_tick_offerings(
     return offerings
 
 
-def run_tick(conn: duckdb.DuckDBPyConnection) -> None:
+def run_tick(conn) -> None:
     """Run a single tick of the simulation."""
     tick_start_time = time.time()
     
@@ -988,18 +1047,34 @@ def main():
     parser.add_argument("--reset", action="store_true", help="Drop all tables and reinitialize")
     args = parser.parse_args()
     
-    conn = duckdb.connect(DB_PATH)
+    print(f"🔗 Connecting to PostgreSQL at {DB_HOST}:{DB_PORT}/{DB_NAME}...")
+    try:
+        conn = psycopg2.connect(
+            host=DB_HOST,
+            port=DB_PORT,
+            dbname=DB_NAME,
+            user=DB_USER,
+            password=DB_PASSWORD
+        )
+        print("✅ Connected to PostgreSQL!")
+    except psycopg2.Error as e:
+        print(f"❌ Failed to connect to PostgreSQL: {e}")
+        return
     
     if args.init or args.reset:
         init_db(conn, reset=args.reset)
         if not args.reset:
+            conn.close()
             return  # Just init, don't run tick
     
     # Ensure DB is initialized
     try:
-        conn.execute("SELECT 1 FROM producers LIMIT 1")
-    except duckdb.CatalogException:
+        cur = conn.cursor()
+        cur.execute("SELECT 1 FROM producers LIMIT 1")
+        cur.close()
+    except psycopg2.Error:
         print("Database not initialized. Run with --init first.")
+        conn.close()
         return
     
     # Check Ollama is available

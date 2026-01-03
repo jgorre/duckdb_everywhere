@@ -10,7 +10,7 @@ spec:
   managed:
     roles:
       - name: pancake_db_reader_writer
-        superuser: false
+        superuser: true
         login: true
         inRoles:
           - pg_read_all_data

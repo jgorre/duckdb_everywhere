@@ -12,3 +12,6 @@ dbt-core>=1.9.0,<2.0.0
 
 # extra features
 sqlfluff>=2.3.5,<3
+
+psycopg2-binary>=2.9.9
+
