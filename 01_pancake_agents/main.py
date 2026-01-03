@@ -36,7 +36,7 @@ DB_NAME = os.getenv("DB_NAME", "happy_pancakes")
 HISTORY_WINDOW = 20  # How many past ticks producers can see
 NUM_TOPPINGS_PER_PRODUCER = 5
 MAX_TOPPING_SWAPS = 3
-OLLAMA_BASE_URL = "http://localhost:11434"
+OLLAMA_BASE_URL = "http://localhost:30134"
 OLLAMA_MODEL = "gemma3:1b"
 
 # =============================================================================

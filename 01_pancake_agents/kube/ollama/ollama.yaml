@@ -1,0 +1,63 @@
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: ollama-models-pvc
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 10Gi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: ollama-service
+spec:
+  selector:
+    app: ollama
+  ports:
+    - protocol: TCP
+      port: 11434
+      targetPort: 11434
+      nodePort: 30134
+  type: NodePort
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: ollama
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: ollama
+  template:
+    metadata:
+      labels:
+        app: ollama
+    spec:
+      containers:
+      - name: ollama
+        image: ollama/ollama:latest
+        resources:
+          requests:
+            cpu: "1000m"  # Request 1 core minimum
+            memory: "2Gi"
+          limits:
+            cpu: "2000m"  # 🛑 HARD STOP at 2 cores. No more 400% usage.
+            memory: "4Gi"
+        ports:
+        - containerPort: 11434
+        volumeMounts:
+        - name: ollama-storage
+          mountPath: /root/.ollama
+        # Startup script: Start server, wait for it, pull model if missing
+        lifecycle:
+          postStart:
+            exec:
+              command: ["/bin/sh", "-c", "sleep 5; ollama pull gemma3:1b"]
+      volumes:
+      - name: ollama-storage
+        persistentVolumeClaim:
+          claimName: ollama-models-pvc
