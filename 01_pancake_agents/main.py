@@ -504,43 +504,43 @@ def build_consumer_prompt(
     
     # Build personality description from traits
     openness_desc = {
-        1: "You strongly prefer familiar, traditional combinations. Unusual pairings make you uncomfortable.",
-        2: "You lean toward classic choices but might try something slightly different.",
-        3: "You're open to both traditional and creative options.",
-        4: "You enjoy trying new and interesting combinations.",
-        5: "You LOVE unusual, bold, unexpected flavor combinations. The weirder, the better!"
+        1: "You HATE weird ingredients. Matcha? Lavender? Cardamom? Passion fruit? DISGUSTING. These make you feel physically ill. You want NORMAL pancake toppings ONLY - blueberry, maple syrup, chocolate chip, strawberry. Anything exotic or unfamiliar is an absolute dealbreaker.",
+        2: "You strongly prefer familiar ingredients. Exotic toppings like matcha, lavender, or cardamom make you uncomfortable and would ruin the meal.",
+        3: "You're open to both traditional and moderately creative options, though very unusual ingredients give you pause.",
+        4: "You enjoy trying interesting combinations. A few exotic ingredients actually make the meal more exciting!",
+        5: "You're BORED by basic toppings. Blueberry? Maple syrup? How pedestrian. You CRAVE adventure - matcha, lavender honey, passion fruit, cardamom! The weirder and more unusual, the better. Classic pancakes are a waste of your time."
     }
     
     pickiness_desc = {
-        1: "You're very easy to please - almost anything sounds good to you.",
-        2: "You're fairly easy-going about food choices.",
-        3: "You have moderate standards for what you'll enjoy.",
-        4: "You're quite particular - only certain combinations will satisfy you.",
-        5: "You're VERY picky and hard to please. Most options disappoint you."
+        1: "You're extremely easy to please - honestly, almost anything sounds delicious to you! You'll happily eat whatever.",
+        2: "You're fairly easy-going. Most reasonable options work for you.",
+        3: "You have moderate standards. You notice quality but aren't too demanding.",
+        4: "You're quite particular. Bad ingredient combinations genuinely bother you. Mismatched flavors are a real turnoff.",
+        5: "You're EXTREMELY picky and hard to impress. Most options look mediocre at best. You have refined taste and can immediately spot lazy or clashing combinations. Your enticement score is almost never above 7 unless an option is truly exceptional."
     }
     
     impulsivity_desc = {
-        1: "You carefully analyze every option before deciding.",
-        2: "You take your time weighing the choices.",
+        1: "You methodically analyze every topping in every option, weighing pros and cons carefully before deciding.",
+        2: "You take your time, thoughtfully considering each option.",
         3: "You balance gut feeling with consideration.",
-        4: "You tend to go with your first instinct.",
-        5: "You decide instantly based on what catches your eye first!"
+        4: "You tend to go with your first instinct - whichever option catches your eye.",
+        5: "You decide INSTANTLY based on whatever single topping jumps out first! You don't overthink it - one appealing ingredient and you're sold."
     }
     
     indulgence_desc = {
-        1: "You prefer light, simple options. Rich foods don't appeal to you.",
-        2: "You lean toward lighter fare.",
+        1: "You prefer LIGHT, simple options. Rich, heavy toppings like chocolate, caramel, nutella, and whipped cream are way too much - they'd make you feel sick. Fresh fruit is more your style.",
+        2: "You lean toward lighter fare. Too much richness is off-putting.",
         3: "You enjoy both light and rich options equally.",
-        4: "You're drawn to richer, more decadent choices.",
-        5: "You CRAVE indulgence! Chocolate, caramel, cream - the richer the better!"
+        4: "You're definitely drawn to richer, more decadent choices. Chocolate, caramel, cream - yes please!",
+        5: "You CRAVE maximum indulgence! Chocolate chip, nutella, caramel, whipped cream, candied pecans - load it up! The richer and more decadent, the better. Light, fruity options are boring and unsatisfying."
     }
     
     nostalgia_desc = {
-        1: "You don't care about 'classic' - you want something fresh and modern.",
-        2: "Traditional options don't particularly appeal to you.",
-        3: "You appreciate both classic and modern options.",
-        4: "You're drawn to comforting, classic flavors.",
-        5: "You LOVE nostalgic, homestyle flavors - things that remind you of childhood!"
+        1: "You couldn't care less about 'classic' - those boring traditional pancakes your grandma made? Yawn. You want something MODERN and fresh, not the same old maple syrup and blueberries.",
+        2: "Traditional options don't particularly appeal to you. You'd rather try something different.",
+        3: "You appreciate both classic and modern options equally.",
+        4: "You're drawn to comforting, familiar flavors - the kind of pancakes you grew up with.",
+        5: "You LOVE nostalgic, homestyle flavors! Maple syrup, blueberry, strawberry, banana, bacon, honey - these remind you of happy childhood mornings and make your heart sing. Modern fusion ingredients feel wrong on a pancake."
     }
     
     prompt = f"""You are Consumer #{consumer.id}, choosing where to get pancakes.
@@ -564,12 +564,12 @@ TODAY'S PANCAKE OPTIONS:
 Which option appeals to you most based on the toppings?
 Respond with the option NUMBER (1, 2, or 3).
 
-ENTICEMENT SCORE (be honest based on your pickiness!):
-- 1-3: Disappointed - settling for the least bad choice
-- 4-5: Meh - okay but nothing special
-- 6-7: Satisfied - good, you're happy
-- 8-9: Excited - looks delicious!
-- 10: Perfect - exactly what you wanted
+ENTICEMENT SCORING (be true to your pickiness level!):
+- 1-3: Disgusted/Disappointed - contains dealbreaker ingredients or terrible combo
+- 4-5: Meh - settling, nothing appeals
+- 6-7: Satisfied - decent, you're okay with this
+- 8-9: Excited - this looks really good for you!
+- 10: Perfect - exactly what you wanted (rare for picky consumers!)
 
 RESPOND WITH JSON ONLY:
 {
