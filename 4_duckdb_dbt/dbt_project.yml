@@ -40,4 +40,4 @@ models:
     core:
       +schema: pancakes_core
     mart:
-      +schema: pancakes_marts
+      +schema: pancakes_mart
