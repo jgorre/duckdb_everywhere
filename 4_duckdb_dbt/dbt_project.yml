@@ -37,7 +37,7 @@ models:
       +schema: pancakes_extract
     staging:
       +schema: pancakes_staging
-      old:
-        +schema: pancakes_old_staging
+    core:
+      +schema: pancakes_core
     mart:
       +schema: pancakes_marts
