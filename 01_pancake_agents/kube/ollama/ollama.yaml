@@ -39,7 +39,8 @@ spec:
     spec:
       containers:
       - name: ollama
-        image: ollama/ollama:latest
+        image: ollama/ollama:0.14.0-rc2
+        imagePullPolicy: IfNotPresent
         resources:
           requests:
             cpu: "1000m"  # Request 1 core minimum
