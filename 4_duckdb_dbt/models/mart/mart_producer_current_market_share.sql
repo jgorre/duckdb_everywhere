@@ -3,6 +3,8 @@ with latest_tick as (
         max(tick_id) as tick_id
     from
         {{ ref('dim_ticks') }}
+    where
+        tick_completed_at is not null
 ), 
 
 producer_market_share as (
